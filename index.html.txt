@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>Bulk Watermark & Size Chart Tool</title>
+    <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
+    <style>
+        *{margin:0;padding:0;box-sizing:border-box;font-family:system-ui,sans-serif;}
+        body{background:#f4f6f8;padding:15px;}
+        .box{max-width:760px;margin:0 auto;background:#fff;border-radius:12px;padding:20px;box-shadow:0 2px 12px rgba(0,0,0,0.08);}
+        h2{text-align:center;margin-bottom:20px;color:#222;font-size:20px;}
+        section{margin-bottom:16px;}
+        label{display:block;margin:6px 0 4px;color:#444;font-size:14px;}
+        input,select,textarea{width:100%;padding:10px;border:1px solid #ddd;border-radius:8px;outline:none;font-size:14px;}
+        .row{display:flex;gap:10px;}
+        .row>div{flex:1;}
+        .btn{width:100%;padding:12px;border:none;border-radius:8px;margin:6px 0;cursor:pointer;font-size:15px;}
+        .btn-blue{background:#1677ff;color:#fff;}
+        .btn-dark{background:#232730;color:#fff;}
+        #preview{width:100%;max-height:320px;border:1px solid #eee;border-radius:8px;margin-top:10px;display:none;object-fit:contain;}
+        .admin-mask{position:fixed;inset:0;background:rgba(0,0,0,0.55);display:none;justify-content:center;align-items:center;z-index:999;}
+        .admin-box{width:90%;max-width:400px;background:#fff;border-radius:12px;padding:20px;}
+        .close-btn{background:#e53e3e;color:#fff;border:none;padding:6px 10px;border-radius:6px;float:right;cursor:pointer;}
+        .clear{clear:both;margin-bottom:10px;}
+    </style>
+</head>
+<body>
+<div class="box">
+    <h2>Bulk Watermark & Size Chart Generator</h2>
+
+    <section>
+        <label>Upload Multiple Images</label>
+        <input type="file" id="imgFile" multiple accept="image/*">
+    </section>
+
+    <section class="row">
+        <div>
+            <label>Watermark Text</label>
+            <input type="text" id="waterText" placeholder="Brand / Copyright">
+        </div>
+        <div>
+            <label>Color</label>
+            <input type="color" id="waterColor" value="#ffffff">
+        </div>
+    </section>
+
+    <section class="row">
+        <div>
+            <label>Font Size</label>
+            <select id="waterSize">
+                <option value="16">Small</option>
+                <option value="24" selected>Medium</option>
+                <option value="32">Large</option>
+            </select>
+        </div>
+        <div>
+            <label>Position</label>
+            <select id="waterPos">
+                <option value="bottom-right">Bottom Right</option>
+                <option value="bottom-left">Bottom Left</option>
+                <option value="top-right">Top Right</option>
+                <option value="center">Center</option>
+                <option value="repeat">Tiled Full Screen</option>
+            </select>
+        </div>
+    </section>
+
+    <section class="row">
+        <div>
+            <label>Opacity</label>
+            <select id="waterOpacity">
+                <option value="0.3">Low</option>
+                <option value="0.5" selected>Medium</option>
+                <option value="0.8">High</option>
+            </select>
+        </div>
+        <div>
+            <label>Export Format</label>
+            <select id="imgFormat">
+                <option value="png">PNG</option>
+                <option value="jpeg">JPG</option>
+            </select>
+        </div>
+    </section>
+
+    <section>
+        <label>Compress Quality</label>
+        <input type="range" id="compressQuality" min="0.1" max="1.0" step="0.1" value="0.8">
+    </section>
+
+    <section>
+        <label>Size Chart Template</label>
+        <select id="sizeTemplate">
+            <option value="custom">Custom</option>
+            <option value="clothes">Clothing</option>
+            <option value="shoes">Shoes</option>
+            <option value="bag">Bag & Accessory</option>
+        </select>
+    </section>
+
+    <section>
+        <label>Size Chart Content</label>
+        <textarea id="sizeText" rows="4"></textarea>
+    </section>
+
+    <button class="btn btn-blue" onclick="startBatchWater()">Batch Watermark & ZIP Download</button>
+    <button class="btn btn-blue" onclick="createSizeChart()">Generate Size Chart</button>
+    < img id="preview">
+    <button class="btn btn-dark" onclick="showAdminLogin()">Admin Settings</button>
+</div>
+
+<!-- Admin Login -->
+<div class="admin-mask" id="adminMask">
+    <div class="admin-box">
+        <button class="close-btn" onclick="closeAdmin()">Close</button>
+        <div class="clear"></div>
+        <label>Admin Password</label>
+        <input type="password" id="adminPwd">
+        <button class="btn btn-blue" onclick="checkAdminPwd()">Login</button>
+    </div>
+</div>
+
+<!-- Admin Panel -->
+<div class="admin-mask" id="adminPanelMask">
+    <div class="admin-box">
+        <button class="close-btn" onclick="closeAdminPanel()">Close</button>
+        <div class="clear"></div>
+        <div class="admin-item"><label>Site Name</label><input type="text" id="siteNameInput"></div>
+        <div class="admin-item"><label>Default Watermark</label><input type="text" id="defaultWaterInput"></div>
+        <div class="admin-item"><label>Copyright</label><input type="text" id="copyrightInput"></div>
+        <button class="btn btn-blue" onclick="saveAdminConfig()">Save</button>
+    </div>
+</div>
+
+<script>
+const siteConfig = {
+    siteName: "Seller Watermark Tool",
+    copyright: "© Seller Tools",
+    defaultWater: "Official Store",
+    adminPassword: "admin123"
+};
+let imgList = [];
+const zip = new JSZip();
+
+document.getElementById("imgFile").addEventListener("change",e=>{
+    imgList = Array.from(e.target.files);
+    alert("Selected: " + imgList.length + " images");
+});
+
+document.getElementById("sizeTemplate").addEventListener("change",function(){
+    const t = this.value;
+    const ta = document.getElementById("sizeText");
+    if(t==="clothes")ta.value="S: Bust 90cm\nM: Bust 96cm\nL: Bust 102cm\nXL: Bust 108cm";
+    else if(t==="shoes")ta.value="EU36: 22.5cm\nEU37: 23.0cm\nEU38: 23.5cm";
+    else if(t==="bag")ta.value="S:20*10*15cm\nM:25*12*18cm\nL:30*15*20cm";
+    else ta.value="";
+});
+
+async function startBatchWater(){
+    if(!imgList.length)return alert("Please upload images first");
+    zip.root.children = {};
+    document.getElementById("preview").style.display="none";
+    for(let i=0;i<imgList.length;i++){
+        await handleImg(imgList[i],i+1);
+    }
+    const blob = await zip.generateAsync({type:"blob"});
+    saveAs(blob,"watermark_images.zip");
+    alert("All done, ZIP downloaded");
+}
+
+function handleImg(file,idx){
+    return new Promise(resolve=>{
+        const r = new FileReader();
+        r.onload = e=>draw(e.target.result,file.name,idx,resolve);
+        r.readAsDataURL(file);
+    });
+}
+
+function draw(src,name,idx,resolve){
+    const c = document.createElement("canvas");
+    const ctx = c.getContext("2d");
+    const img = new Image();
+    img.crossOrigin="anonymous";
+    img.onload=()=>{
+        c.width=img.width;c.height=img.height;
+        ctx.drawImage(img,0,0);
+        const text = document.getElementById("waterText").value||siteConfig.defaultWater;
+        const color = document.getElementById("waterColor").value;
+        const size = document.getElementById("waterSize").value;
+        const pos = document.getElementById("waterPos").value;
+        const opa = document.getElementById("waterOpacity").value;
+        const quality = +document.getElementById("compressQuality").value;
+        const fmt = document.getElementById("imgFormat").value;
+
+        ctx.globalAlpha=opa;
+        ctx.fillStyle=color;
+        ctx.font=`${size}px sans-serif`;
+
+        if(pos==="repeat"){
+            for(let x=0;x<c.width;x+=120){
+                for(let y=0;y<c.height;y+=60){
+                    ctx.save();ctx.translate(x,y);ctx.rotate(-20*Math.PI/180);
+                    ctx.fillText(text,0,0);ctx.restore();
+                }
+            }
+        }else{
+            let x=20,y=30;
+            if(pos==="bottom-right"){x=c.width-120;y=c.height-20;}
+            if(pos==="bottom-left"){x=20;y=c.height-20;}
+            if(pos==="top-right"){x=c.width-120;y=40;}
+            if(pos==="center"){x=c.width/2-40;y=c.height/2;}
+            ctx.fillText(text,x,y);
+        }
+        const url = c.toDataURL(`image/${fmt}`,quality);
+        if(idx===1){document.getElementById("preview").src=url;document.getElementById("preview").style.display="block";}
+        zip.file(`img_${idx}.${fmt}`,url.split(",")[1],{base64:true});
+        resolve();
+    };
+    img.src=src;
+}
+
+function createSizeChart(){
+    const text = document.getElementById("sizeText").value;
+    if(!text)return alert("Please fill size content");
+    const c = document.createElement("canvas");
+    const ctx = c.getContext("2d");
+    c.width=500;c.height=350;
+    ctx.fillStyle="#fff";ctx.fillRect(0,0,c.width,c.height);
+    ctx.fillStyle="#333";ctx.font="18px sans-serif";
+    text.split("\n").forEach((line,i)=>ctx.fillText(line,30,40+i*30));
+    const fmt = document.getElementById("imgFormat").value;
+    const url = c.toDataURL(`image/${fmt}`,0.8);
+    document.getElementById("preview").src=url;
+    document.getElementById("preview").style.display="block";
+    const a=document.createElement("a");
+    a.href=url;a.download=`size_chart.${fmt}`;a.click();
+}
+
+function showAdminLogin(){document.getElementById("adminMask").style.display="flex";}
+function closeAdmin(){document.getElementById("adminMask").style.display="none";}
+function closeAdminPanel(){document.getElementById("adminPanelMask").style.display="none";}
+function checkAdminPwd(){
+    const p = document.getElementById("adminPwd").value;
+    if(p===siteConfig.adminPassword){
+        closeAdmin();
+        document.getElementById("siteNameInput").value=siteConfig.siteName;
+        document.getElementById("defaultWaterInput").value=siteConfig.defaultWater;
+        document.getElementById("copyrightInput").value=siteConfig.copyright;
+        document.getElementById("adminPanelMask").style.display="flex";
+    }else alert("Wrong password");
+}
+function saveAdminConfig(){
+    siteConfig.siteName=document.getElementById("siteNameInput").value;
+    siteConfig.defaultWater=document.getElementById("defaultWaterInput").value;
+    siteConfig.copyright=document.getElementById("copyrightInput").value;
+    alert("Saved");closeAdminPanel();
+}
+</script>
+</body>
+</html>
